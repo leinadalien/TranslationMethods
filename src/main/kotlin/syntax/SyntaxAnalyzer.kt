@@ -38,7 +38,7 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
         return token
     }
 
-    fun parse(): Node {
+    fun parse(): Node.Program {
         val funcDefinitions = mutableListOf<Node.Function>()
         while (currentPosition < tokens.size) {
             try {
@@ -200,6 +200,7 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
             ::parseDoWhileStatement,
             ::parseReturnStatement,
             ::parseDeclaration,
+            ::parseAssignmentStatement,
             //::parsePrimaryExpression,
             ::parseExpressionStatement
         ) as Node.Statement
@@ -426,6 +427,14 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
         val condition = parseCondition()
         val body = parseCompoundStatement()
         return Node.Statement.While(condition, body)
+    }
+
+    private fun parseAssignmentStatement() : Node.Statement.Assignment {
+        val variable = parseVariable()
+        consumeNextToken<TokenType.Operator.Assign>()
+        val expression = parseExpression()
+        consumeNextToken<TokenType.Punctuation.Semicolon>()
+        return Node.Statement.Assignment(variable, expression)
     }
 
     private fun parseDoWhileStatement(): Node.Statement.DoWhile {

@@ -19,7 +19,9 @@ class Token(val value: String, val position: Position) {
     companion object {
         private fun classify(value: String): TokenType {
             return when {
-                value.matches("-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?[fF]?".toRegex()) -> TokenType.Constant.Number
+                value.matches("-?\\d+".toRegex()) -> TokenType.Constant.Int
+                value.matches("-?\\d+(?:\\.\\d+)?[fF]?".toRegex()) -> TokenType.Constant.Float
+                value.matches("-?\\d+(?:\\.\\d+)?[dD]?".toRegex()) -> TokenType.Constant.Double
                 value.matches("\"([^\"]*)\"".toRegex()) -> TokenType.Constant.String
                 value.matches("'[^']'".toRegex()) -> TokenType.Constant.Symbol
                 value.matches("true|false".toRegex()) -> TokenType.Constant.Bool
@@ -30,7 +32,7 @@ class Token(val value: String, val position: Position) {
                         TokenType.Identifier
                 }
 
-                value == "=" -> TokenType.Operator.Other
+                value == "=" -> TokenType.Operator.Assign
                 value.matches("[+\\-]".toRegex()) -> TokenType.Operator.Binary.Addictive
                 value.matches("[*/%]".toRegex()) -> TokenType.Operator.Binary.Multiply
                 value.matches("==|!=|<=|>=|<|>".toRegex()) -> TokenType.Operator.Binary.Comparison

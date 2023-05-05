@@ -234,6 +234,16 @@ sealed class Node {
                 expression.printToConsole("$indent· ")
             }
         }
+        data class Assignment(
+            val variable: Expression.Variable,
+            val expression: Expression,
+        ) : Statement() {
+            override fun printToConsole(indent: String) {
+                println("${indent}Assignment statement:")
+                variable.printToConsole("$indent· ")
+                expression.printToConsole("$indent· ")
+            }
+        }
     }
 
     sealed class Expression : Node() {

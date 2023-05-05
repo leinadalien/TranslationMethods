@@ -5,10 +5,14 @@ import syntax.ast.Node
 sealed class TokenType {
     object Identifier : TokenType()
     sealed class Constant : TokenType() {
-        object Number : Constant()
+        object Int : Constant()
+        object Double : Constant()
+        object Float : Constant()
         object Symbol : Constant()
         object Bool : Constant()
         object String : Constant()
+
+        override fun toString() = this::class.simpleName ?: ""
     }
     sealed class Punctuation : TokenType() {
         sealed class Paren : Punctuation() {
@@ -44,6 +48,7 @@ sealed class TokenType {
             object Logical : Binary()
             object Comparison : Binary()
         }
+        object Assign : Operator()
         object IncDec : Operator()
         object Other : Operator()
         override fun toString() = (this::class.simpleName ?: "") + ' ' + javaClass.superclass.simpleName
