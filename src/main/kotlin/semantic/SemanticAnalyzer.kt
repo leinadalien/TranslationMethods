@@ -8,8 +8,8 @@ import semantic.exceptions.TypeMismatch
 import syntax.SyntaxAnalyzer
 import syntax.ast.Node
 import java.beans.Expression
+import javax.swing.plaf.nimbus.State
 import kotlin.concurrent.thread
-
 class SemanticAnalyzer(private val tree: Node.Program) {
     private val declaredVariables = mutableListOf<Variable>()
     private val declaredFunctions = mutableListOf<Node.Function>()
@@ -17,8 +17,18 @@ class SemanticAnalyzer(private val tree: Node.Program) {
     constructor(fileName: String) : this(SyntaxAnalyzer(fileName).parse())
 
     fun checkForMistakes() {
-        checkNode(tree)
+        checkProgram(tree)
     }
+
+
+    private fun checkProgram(program: Node.Program) {
+        for (function in program.functions) {
+            checkFunction(function)
+        }
+    }
+
+
+
 
     private fun checkNode(node: Node?) {
         if (node == null) return
@@ -54,22 +64,30 @@ class SemanticAnalyzer(private val tree: Node.Program) {
                 checkExpression(variable.type, node.expression)
             }
             is Node.Function -> checkFunction(node)
-
             else -> Unit
         }
     }
 
     private fun checkFunction(function: Node.Function) {
         val returnType = function.returnType
-        var returnsInBody = mutableListOf<Node.Statement.Return>()
+        val returnsInBody = mutableListOf<Node.Statement.Return>()
         function.body.statements.forEach { statement ->
             if(statement is Node.Statement.Return) returnsInBody.add(statement)
         }
-        if (returnsInBody.isEmpty()) throw MessageException("Function ${function.name} has no return statements")
+        if (returnsInBody.isEmpty()) throw MessageException("Function $function has no return statements")
         returnsInBody.forEach {
             checkExpression(returnType, it.expression)
         }
+
+        for(statement in function.body.statements) {
+            checkStatement(statement)
+        }
+
         declaredFunctions.add(function)
+    }
+
+    private fun checkStatement(statement: Node.Statement) {
+        TODO("Not yet implemented")
     }
 
     private fun checkFunctionCall(type: Node.Type, name: Node.Identifier, arguments: List<Node.Argument>) {
@@ -97,16 +115,19 @@ class SemanticAnalyzer(private val tree: Node.Program) {
         }
     }
 
-    private fun checkBinary(type: Node.Type, expression: Node.Expression.Binary) {
-        checkExpression(type, expression.left)
-        checkExpression(type, expression.right)
-
+    private fun checkBoolExpression(type: Node.Type, expression: Node.Expression.Binary) {
         when (expression) {
             is Node.Expression.Binary.Logical, is Node.Expression.Binary.Compare -> {
                 if (type.typeSpecifier.token.value != "bool") throw TypeMismatch(type, expression.operator.token.type.toString(), expression.operator.token.position)
             }
             else -> Unit
         }
+    }
+    private fun checkBinary(type: Node.Type, expression: Node.Expression.Binary) {
+        checkExpression(type, expression.left)
+        checkExpression(type, expression.right)
+        checkBoolExpression(type, expression)
+
     }
 
     private fun checkConstant(type: Node.Type, constant: Node.Expression.Constant) {

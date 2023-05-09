@@ -2,6 +2,7 @@ package syntax.ast
 
 import lexis.token.Token
 import lexis.token.TokenType
+import kotlin.text.StringBuilder
 
 sealed class Node {
     abstract fun printToConsole(indent: String = "")
@@ -31,11 +32,24 @@ sealed class Node {
             println("$indent· Body:")
             body.printToConsole("$indent· · ")
         }
+
+        override fun toString(): String {
+            val parametersBuilder = StringBuilder()
+            for(parameter in parameters) {
+                parametersBuilder.append(parameter.type, ' ', parameter.name.token.value)
+                if (parameter != parameters.last()) parametersBuilder.append(", ")
+            }
+            return "${name.token.value}(${parametersBuilder})"
+        }
     }
 
     data class Identifier(val token: Token) : Node() {
         override fun printToConsole(indent: String) {
             println("${indent}Name: ${token.value}")
+        }
+
+        override fun toString(): String {
+            return token.value
         }
     }
     //tokenized is temp
@@ -44,6 +58,10 @@ sealed class Node {
             println("${indent}Token")
             println("$indent· type: ${token.type}")
             println("$indent· value: ${token.value}")
+        }
+
+        override fun toString(): String {
+            return token.value
         }
     }
     data class Operator(val token: Token) : Node() {
@@ -392,6 +410,14 @@ sealed class Node {
             typeModifier?.let { printToConsole(it.token.value + ' ') }
             memoryModifier?.let { printToConsole(it.token.value + ' ') }
             println(typeSpecifier.token.value)
+        }
+
+        override fun toString(): String {
+            val builder = StringBuilder()
+            typeModifier?.let { builder.append(it, ' ') }
+            memoryModifier?.let { builder.append(it, ' ') }
+            builder.append(typeSpecifier)
+            return builder.toString()
         }
     }
 }

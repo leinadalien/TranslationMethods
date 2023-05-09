@@ -8,8 +8,9 @@ import syntax.exceptions.*
 
 class SyntaxAnalyzer(private val tokens: List<Token>) {
     private var currentPosition = 0
-    private fun getNextToken() = tokens[currentPosition++]
-    private fun peekNextToken() = tokens[currentPosition]
+    private fun getNextToken() = if (currentPosition < tokens.size) tokens[currentPosition++] else Token(" ", tokens.last().position)
+    private fun peekNextToken() = if (currentPosition < tokens.size) tokens[currentPosition] else Token(" ", tokens.last().position)
+
     private fun checkNextTokenOnValue(value: String) = peekNextToken().value == value
     private inline fun <reified Type : TokenType> checkNextToken(value: String? = null): Boolean {
         when (peekNextToken().type) {
@@ -19,7 +20,6 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
                 }
                 return true
             }
-
             else -> return false
         }
     }
@@ -28,25 +28,21 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
 
     private fun consumeNextTokenOnValue(value: String): Token {
         val token = getNextToken()
-        if (token.value != value) throw UnexpectedTokenException(value, token)
+        if (token.value != value) throw UnexpectedTokenException("'$value'", token, currentPosition)
         return token
     }
 
-    private inline fun <reified Type : TokenType> consumeNextToken(expected: String = Type::class.simpleName.toString()): Token {
+    private inline fun <reified Type : TokenType> consumeNextToken(expected: String): Token {
         val token = getNextToken()
-        if (token.type !is Type) throw UnexpectedTokenException(expected, token)
+        if (token.type !is Type) throw UnexpectedTokenException(expected, token, currentPosition)
         return token
     }
 
     fun parse(): Node.Program {
         val funcDefinitions = mutableListOf<Node.Function>()
         while (currentPosition < tokens.size) {
-            try {
-                val funcDefinition = parseFunctionDefinition()
-                funcDefinitions.add(funcDefinition)
-            } catch (ex: SpecificException) {
-                throw ex.exception
-            }
+            val funcDefinition = parseFunctionDefinition()
+            funcDefinitions.add(funcDefinition)
         }
         return Node.Program(funcDefinitions)
     }
@@ -55,16 +51,14 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
         return Node.Tokenized(consumeNextTokenOnValue(value))
     }
 
-    private fun parseFirstOf(vararg parseFunctions: () -> Node): Node {
+    private fun parseFirstOf(expected: String, vararg parseFunctions: () -> Node): Node {
         val savedPosition = currentPosition
-        var exception = SpecificException(MessageException(""), 0)
+        var exception: SyntaxException = UnexpectedTokenException(expected, peekNextToken(), savedPosition)
         for (function in parseFunctions) {
             try {
                 return function.invoke()
             } catch (ex: SyntaxException) {
-                if (ex is SpecificException) {
-                    if (ex.position >= exception.position) exception = ex
-                } else if (currentPosition >= exception.position) exception = SpecificException(ex, currentPosition)
+                if (ex.tokenPosition > exception.tokenPosition) exception = ex
                 currentPosition = savedPosition
             }
         }
@@ -76,7 +70,8 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
         val savedPosition = currentPosition
         try {
             result = parseFunction.invoke()
-        } catch (_: SyntaxException) {
+        } catch (ex: SyntaxException) {
+            if (ex.tokenPosition > savedPosition + 1) throw ex
             currentPosition = savedPosition
         }
         return result
@@ -84,7 +79,7 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
 
     private fun parseFunctionDefinition(): Node.Function {
         val type = parseTypeSpecifier()
-        val name = Node.Identifier(consumeNextToken<TokenType.Identifier>())
+        val name = Node.Identifier(consumeNextToken<TokenType.Identifier>("name of function"))
         val parameters = parseParameterList()
         val body = parseCompoundStatement()
         return Node.Function(type, name, parameters, body)
@@ -92,13 +87,13 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
 
     private fun parseParameterList(): List<Node.Parameter> {
         val parameters = mutableListOf<Node.Parameter>()
-        consumeNextToken<TokenType.Punctuation.Paren.Left>()
+        consumeNextTokenOnValue("(")
 
         while (!checkNextToken<TokenType.Punctuation.Paren.Right>()) {
             val parameter = parseParameter()
             parameters.add(parameter)
             if (!checkNextToken<TokenType.Punctuation.Paren.Right>()) {
-                consumeNextToken<TokenType.Punctuation.Comma>()
+                consumeNextTokenOnValue(",")
             }
         }
         getNextToken()
@@ -107,26 +102,26 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
 
     private fun parseParameter(): Node.Parameter {
         val type = parseTypeSpecifier()
-        val name = Node.Identifier(consumeNextToken<TokenType.Identifier>())
+        val name = Node.Identifier(consumeNextToken<TokenType.Identifier>("name of parameter"))
         return Node.Parameter(type, name)
     }
 
     private fun parseCompoundStatement(): Node.Statement.Compound {
         val statements = mutableListOf<Node.Statement>()
-        consumeNextToken<TokenType.Punctuation.Brace.Left>()
+        consumeNextTokenOnValue("{")
         var statement = tryParse { parseStatement() }
         while (statement != null) {
             statements.add(statement as Node.Statement)
             statement = tryParse { parseStatement() }
         }
-        consumeNextToken<TokenType.Punctuation.Brace.Right>("}")
+        consumeNextToken<TokenType.Punctuation.Brace.Right>("statement or '}'")
         return Node.Statement.Compound(statements)
     }
 
     private fun parseTypedefDeclaration(): Node {
         consumeNextTokenOnValue("typedef")
         val type = parseTypeSpecifier()
-        val name = Node.Identifier(consumeNextToken<TokenType.Identifier>())
+        val name = Node.Identifier(consumeNextToken<TokenType.Identifier>("name of type"))
         return Node.Statement.TypedefDeclaration(type, name)
     }
 
@@ -145,10 +140,10 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
             typeSpecifier?.let { t ->
                 val type = t as Node.Tokenized
                 val modifier = it as Node.Tokenized
-                if (modifier.token.value == "short" && type.token.value != "int") throw TypeSpecificException("After 'short' can be only 'int'")
+                if (modifier.token.value == "short" && type.token.value != "int") throw MessageException("After 'short' can be only 'int'", currentPosition)
                 if (modifier.token.value == "long") {
                     when (type.token.value) {
-                        "float", "char" -> throw TypeSpecificException("'long' and '${type.token.value}' can't be in type specifier")
+                        "float", "char" -> throw MessageException("'long' and '${type.token.value}' can't be in type specifier", currentPosition)
                     }
                 }
             } ?: {
@@ -166,14 +161,14 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
     }
 
     private fun parseMemoryModifier(): Node {
-        return parseFirstOf(
+        return parseFirstOf( "memory modifier",
             { parseTokenOnValue("short") },
             { parseTokenOnValue("long") }
         )
     }
 
     private fun parseType(): Node {
-        return parseFirstOf(
+        return parseFirstOf("type",
             { parseTokenOnValue("float") },
             { parseTokenOnValue("double") },
             { parseTokenOnValue("char") },
@@ -183,14 +178,14 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
     }
 
     private fun parseTypeModifier(): Node {
-        return parseFirstOf(
+        return parseFirstOf("type modifier",
             { parseTokenOnValue("unsigned") },
             { parseTokenOnValue("signed") }
         )
     }
 
     private fun parseStatement(): Node.Statement {
-        return parseFirstOf(
+        return parseFirstOf("statement",
             ::parseTypedefDeclaration,
             ::parseCompoundStatement,
             ::parseIfStatement,
@@ -210,7 +205,7 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
         consumeNextTokenOnValue("if")
         val condition = parseCondition()
         val trueBranch = parseCompoundStatement()
-        val falseBranch = parseElseStatement()
+        val falseBranch = tryParse { parseElseStatement() }?.let { it as Node.Statement.Compound }
         return Node.Statement.If(condition, trueBranch, falseBranch)
     }
 
@@ -222,19 +217,19 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
     private fun parseConditionExpression(): Node.Expression.Conditional {
         when(val expression = parseExpression()) {
             is Node.Expression.Binary.Logical, is Node.Expression.Binary.Compare, is Node.Expression.Constant -> return Node.Expression.Conditional(expression)
-            else -> throw MessageException("Expected condition in for")
+            else -> throw UnexpectedTokenException("condition", peekNextToken(), currentPosition)
         }
     }
 
     private fun parseCondition(): Node.Expression.Conditional {
-        consumeNextToken<TokenType.Punctuation.Paren.Left>()
+        consumeNextTokenOnValue("(")
         val condition = parseConditionExpression()
-        consumeNextToken<TokenType.Punctuation.Paren.Right>()
+        consumeNextTokenOnValue(")")
         return condition
     }
 
     private fun parseLogicalExpression(): Node {
-        return parseFirstOf(
+        return parseFirstOf("logical expression",
             ::parseCompareExpression,
             ::parseFunctionCall,
             ::parseBoolConstant,
@@ -243,40 +238,40 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
     }
 
     private fun parseBoolConstant(): Node.Expression.Constant {
-        return Node.Expression.Constant(consumeNextToken<TokenType.Constant.Bool>())
+        return Node.Expression.Constant(consumeNextToken<TokenType.Constant.Bool>("true or false"))
     }
 
     private fun parseInverseLogicalExpression(): Node.Expression.Unary.Logical {
-        val operator = consumeNextToken<TokenType.Operator.Not>()
+        val operator = consumeNextTokenOnValue("!")
         val expression = parseLogicalExpression() as Node.Expression
         return Node.Expression.Unary.Logical(Node.Operator(operator), expression)
     }
 
     private fun parseCompareExpression(): Node.Expression.Binary.Compare {
         val left = parseExpression()
-        val operator = Node.Operator(consumeNextToken<TokenType.Operator.Binary.Comparison>())
+        val operator = Node.Operator(consumeNextToken<TokenType.Operator.Binary.Comparison>("comparison operator"))
         val right = parseExpression()
         return Node.Expression.Binary.Compare(left, operator, right)
     }
 
     private fun parseFunctionCall(): Node.Expression.FunctionCall {
-        val name = Node.Identifier(consumeNextToken<TokenType.Identifier>())
+        val name = Node.Identifier(consumeNextToken<TokenType.Identifier>("name of function"))
         val arguments = parseArgumentList()
         return Node.Expression.FunctionCall(name, arguments)
     }
 
     private fun parseArgumentList(): List<Node.Argument> {
         val arguments = mutableListOf<Node.Argument>()
-        consumeNextToken<TokenType.Punctuation.Paren.Left>()
+        consumeNextTokenOnValue("(")
         tryParse { parseArgument() }?.let {
             arguments.add(it as Node.Argument)
-            var comma = tryParse { Node.Tokenized(consumeNextToken<TokenType.Punctuation.Comma>()) }
+            var comma = tryParse { Node.Tokenized(consumeNextTokenOnValue(",")) }
             while (comma != null) {
                 arguments.add(parseArgument())
-                comma = tryParse { Node.Tokenized(consumeNextToken<TokenType.Punctuation.Comma>()) }
+                comma = tryParse { Node.Tokenized(consumeNextTokenOnValue(",")) }
             }
         }
-        consumeNextToken<TokenType.Punctuation.Paren.Right>()
+        consumeNextTokenOnValue(",")
         return arguments
     }
 
@@ -292,13 +287,13 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
         return left
     }
     private fun parseParentedExpression() : Node.Expression {
-        consumeNextToken<TokenType.Punctuation.Paren.Left>("(")
+        consumeNextTokenOnValue("(")
         val expression = parseExpression()
-        consumeNextToken<TokenType.Punctuation.Paren.Right>(")")
+        consumeNextTokenOnValue(")")
         return expression
     }
     private fun parseBinaryExpression(left: Node.Expression): Node.Expression {
-        val operator = consumeNextToken<TokenType.Operator.Binary>()
+        val operator = consumeNextToken<TokenType.Operator.Binary>("binary operator")
         var right = parsePrimaryExpression()
         val priority = getBinaryOperatorPriority(operator.value)
         if (checkNextToken<TokenType.Operator.Binary>() && getBinaryOperatorPriority(peekNextToken().value) > priority) {
@@ -325,23 +320,23 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
     }
 
     private fun parsePostfixExpression() : Node.Expression.Postfix {
-        val variable = consumeNextToken<TokenType.Identifier>()
-        val operator = consumeNextToken<TokenType.Operator.IncDec>()
+        val variable = consumeNextToken<TokenType.Identifier>("name of variable")
+        val operator = consumeNextToken<TokenType.Operator.IncDec>("postfix operator")
         return Node.Expression.Postfix(Node.Expression.Variable(variable), Node.Operator(operator))
     }
     private fun parsePrefixExpression() : Node.Expression.Prefix {
-        val operator = consumeNextToken<TokenType.Operator.IncDec>()
-        val variable = consumeNextToken<TokenType.Identifier>()
+        val operator = consumeNextToken<TokenType.Operator.IncDec>("prefix operator")
+        val variable = consumeNextToken<TokenType.Identifier>("name of variable")
         return Node.Expression.Prefix(Node.Operator(operator), Node.Expression.Variable(variable))
     }
     private fun parseSwitchStatement(): Node.Statement.Switch {
-        consumeNextTokenOnValue("switch")
-        consumeNextToken<TokenType.Punctuation.Paren.Left>()
+        val switchToken = consumeNextTokenOnValue("switch")
+        consumeNextTokenOnValue("(")
         val expression = parseExpression()
-        consumeNextToken<TokenType.Punctuation.Paren.Right>()
-        consumeNextToken<TokenType.Punctuation.Brace.Left>()
+        consumeNextTokenOnValue(")")
+        consumeNextTokenOnValue("{")
         val variants = mutableListOf<Node>()
-        var variant: Node? = parseFirstOf(
+        var variant: Node? = parseFirstOf("'switch' or 'default'",
             ::parseCaseStatement,
             ::parseDefaultStatement
         )
@@ -350,21 +345,21 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
                 variant
             )
             variant = tryParse {
-                parseFirstOf(
+                parseFirstOf("'switch' or 'default'",
                     ::parseCaseStatement,
                     ::parseDefaultStatement
                 )
             }
         }
-        consumeNextToken<TokenType.Punctuation.Brace.Right>()
+        consumeNextTokenOnValue("}")
         var default: Node.Statement.Default? = null
         val cases = mutableListOf<Node.Statement.Case>()
-        for (variant in variants) {
-            if (variant is Node.Statement.Default) {
-                if (default == null) default = variant
-                else throw MessageException("Switch statement must contain only one 'default'")
+        for (eachVariant in variants) {
+            if (eachVariant is Node.Statement.Default) {
+                if (default == null) default = eachVariant
+                else throw MessageException("Switch statement must contain only one 'default'", currentPosition)
             } else {
-                cases.add(variant as Node.Statement.Case)
+                cases.add(eachVariant as Node.Statement.Case)
             }
         }
         return Node.Statement.Switch(expression, cases, default)
@@ -372,13 +367,13 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
 
     private fun parseDefaultStatement(): Node.Statement.Default {
         consumeNextTokenOnValue("default")
-        consumeNextToken<TokenType.Punctuation.Colon>()
+        consumeNextTokenOnValue(":")
         val statements = mutableListOf<Node.Statement>()
         while (!checkNextTokenOnValue("case")
             && !checkNextToken<TokenType.Punctuation.Brace.Right>()
         ) {
             statements.add(
-                parseFirstOf(
+                parseFirstOf("statement or 'break'",
                     ::parseStatement,
                     ::parseBreakStatement
                 ) as Node.Statement
@@ -389,15 +384,15 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
 
     private fun parseCaseStatement(): Node.Statement.Case {
         consumeNextTokenOnValue("case")
-        val variant = Node.Expression.Constant(consumeNextToken<TokenType.Constant>())
-        consumeNextToken<TokenType.Punctuation.Colon>()
+        val variant = Node.Expression.Constant(consumeNextToken<TokenType.Constant>("constant"))
+        consumeNextTokenOnValue(":")
         val statements = mutableListOf<Node.Statement>()
         while (!checkNextTokenOnValue("case")
             && !checkNextTokenOnValue("default")
             && !checkNextToken<TokenType.Punctuation.Brace.Right>()
         ) {
             statements.add(
-                parseFirstOf(
+                parseFirstOf("statement or 'break'",
                     ::parseStatement,
                     ::parseBreakStatement
                 ) as Node.Statement
@@ -407,17 +402,17 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
     }
     private fun parseBreakStatement() : Node.Statement.Break {
         val statement = consumeNextTokenOnValue("break")
-        consumeNextToken<TokenType.Punctuation.Semicolon>()
+        consumeNextTokenOnValue(";")
         return Node.Statement.Break
     }
     private fun parseForStatement(): Node.Statement {
         consumeNextTokenOnValue("for")
-        consumeNextToken<TokenType.Punctuation.Paren.Left>()
+        consumeNextTokenOnValue("(")
         val initialization = parseDeclaration()
         val condition = parseConditionExpression()
-        consumeNextToken<TokenType.Punctuation.Semicolon>()
+        consumeNextTokenOnValue(";")
         val increase = parseExpression()
-        consumeNextToken<TokenType.Punctuation.Paren.Right>()
+        consumeNextTokenOnValue(")")
         val body = parseCompoundStatement()
         return Node.Statement.For(initialization, condition, increase, body)
     }
@@ -431,9 +426,9 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
 
     private fun parseAssignmentStatement() : Node.Statement.Assignment {
         val variable = parseVariable()
-        consumeNextToken<TokenType.Operator.Assign>()
+        consumeNextToken<TokenType.Operator.Assign>("assign operator")
         val expression = parseExpression()
-        consumeNextToken<TokenType.Punctuation.Semicolon>()
+        consumeNextTokenOnValue(";")
         return Node.Statement.Assignment(variable, expression)
     }
 
@@ -442,21 +437,21 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
         val body = parseCompoundStatement()
         consumeNextTokenOnValue("while")
         val condition = parseCondition()
-        consumeNextToken<TokenType.Punctuation.Semicolon>()
+        consumeNextTokenOnValue(";")
         return Node.Statement.DoWhile(body, condition)
     }
 
     private fun parseReturnStatement(): Node.Statement.Return {
         consumeNextTokenOnValue("return")
         val expression = parseExpression()
-        consumeNextToken<TokenType.Punctuation.Semicolon>()
+        consumeNextTokenOnValue(";")
         return Node.Statement.Return(expression)
     }
 
     private fun parseDeclaration(): Node.Statement.Declaration {
         val type = parseTypeSpecifier()
         val declarators = parseDeclarators()
-        consumeNextToken<TokenType.Punctuation.Semicolon>()
+        consumeNextTokenOnValue(";")
         return Node.Statement.Declaration(type, declarators)
     }
 
@@ -476,7 +471,7 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
     }
 
     private fun parseDeclarator(): Node.Declarator {
-        val name = Node.Identifier(consumeNextToken<TokenType.Identifier>())
+        val name = Node.Identifier(consumeNextToken<TokenType.Identifier>("name of variable"))
         var initializer: Node.Initializer? = null
         if (checkNextTokenOnValue("=")) {
             getNextToken()
@@ -486,29 +481,30 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
     }
 
     private fun parsePrimaryExpression(): Node.Expression {
-        return parseFirstOf(
+        return parseFirstOf("primary expression",
             ::parseConstant,
             ::parseFunctionCall,
             ::parseParentedExpression,
             ::parsePostfixExpression,
             ::parseVariable,
-            ::parsePrefixExpression
+            ::parsePrefixExpression,
+            ::parseDeclaration
         ) as Node.Expression
     }
 
     private fun parseConstant(): Node.Expression.Constant {
-        val token = consumeNextToken<TokenType.Constant>()
+        val token = consumeNextToken<TokenType.Constant>("constant")
         return Node.Expression.Constant(token)
     }
 
     private fun parseVariable(): Node.Expression.Variable {
-        val token = consumeNextToken<TokenType.Identifier>()
+        val token = consumeNextToken<TokenType.Identifier>("name of variable")
         return Node.Expression.Variable(token)
     }
 
     private fun parseExpressionStatement(): Node.Statement {
         val expression = parseExpression()
-        consumeNextToken<TokenType.Punctuation.Semicolon>()
+        consumeNextTokenOnValue(";")
         return Node.Statement.ExpressionStatement(expression)
     }
 }

@@ -1,4 +1,4 @@
 package syntax.exceptions
 
 
-open class SyntaxException : Exception()
+open class SyntaxException(val tokenPosition: Int) : Exception()

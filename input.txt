@@ -1,8 +1,11 @@
-float foo() {
-    return 0f;
-}
 
-int main() {
-    float a = foo();
+
+int main(int a) {
+    int a = 5;
+    b = 6;
+    switch(a){
+        case 1:
+        break;
+    }
     return 0;
 }
