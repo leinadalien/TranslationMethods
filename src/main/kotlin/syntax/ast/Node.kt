@@ -14,14 +14,16 @@ sealed class Node {
     }
 
     data class Function(
-        val returnType: Type,
+        val returnType: Type?,
         val name: Identifier,
         val parameters: List<Parameter>,
         val body: Statement.Compound,
     ) : Node() {
         override fun printToConsole(indent: String) {
             println("${indent}Function:")
-            returnType.printToConsole("$indent· ")
+            returnType?.let {
+                it.printToConsole("$indent· ")
+            }?: apply { println("$indent· void") }
             name.printToConsole("$indent· ")
             if (parameters.isNotEmpty()) {
                 println("$indent  Parameters:")
@@ -90,24 +92,49 @@ sealed class Node {
         }
     }
 
-    data class Declarator(
-        val name: Identifier,
-        val initializer: Initializer?
-    ) : Node() {
-        override fun printToConsole(indent: String) {
-            println("${indent}Declarator:")
-            name.printToConsole("$indent· ")
-            initializer?.printToConsole("$indent· ")
+    sealed class Declarator: Node() {
+        data class Variable(
+            val name: Identifier,
+            val initializer: Initializer?
+        ) : Declarator() {
+            override fun printToConsole(indent: String) {
+                println("${indent}Variable declarator:")
+                name.printToConsole("$indent· ")
+                initializer?.printToConsole("$indent· ")
+            }
+        }
+        data class Pointer(
+            val variable: Expression.Variable,
+            val initializer: Initializer?
+        ) : Declarator() {
+            override fun printToConsole(indent: String) {
+                println("${indent}Pointer declarator:")
+                variable.printToConsole("$indent· ")
+                initializer?.printToConsole("$indent· ")
+            }
         }
     }
 
-    data class Initializer(
-        val expression: Expression
-    ) : Node() {
-        override fun printToConsole(indent: String) {
-            println("${indent}Initializer:")
-            expression.printToConsole("$indent· ")
+
+
+    sealed class Initializer : Node() {
+        data class Variable(
+            val expression: Expression
+        ) : Initializer() {
+            override fun printToConsole(indent: String) {
+                println("${indent}Variable initializer:")
+                expression.printToConsole("$indent· ")
+            }
         }
+        data class Pointer(
+            val variable: Expression.Variable
+        ) : Initializer() {
+            override fun printToConsole(indent: String) {
+                println("${indent}Pointer initializer:")
+                variable.printToConsole("$indent· ")
+            }
+        }
+
     }
 
 

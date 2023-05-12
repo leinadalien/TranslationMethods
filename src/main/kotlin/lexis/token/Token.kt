@@ -40,6 +40,7 @@ class Token(val value: String, val position: Position) {
                 value.matches("\\*=|/=|\\+=|-=|%=".toRegex()) -> TokenType.Operator.Other
                 value.matches("&&|\\|\\|".toRegex()) -> TokenType.Operator.Binary.Logical
                 value.matches("!".toRegex()) -> TokenType.Operator.Not
+                value == "&" -> TokenType.Operator.Ref
                 value.matches(",".toRegex()) -> TokenType.Punctuation.Comma
                 value.matches(":".toRegex()) -> TokenType.Punctuation.Colon
                 value.matches(";".toRegex()) -> TokenType.Punctuation.Semicolon

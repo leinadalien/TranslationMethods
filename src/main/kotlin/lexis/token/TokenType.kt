@@ -41,6 +41,7 @@ sealed class TokenType {
     }
     sealed class Operator : TokenType() {
 
+        object Ref : Operator()
         object Not : Operator()
         sealed class Binary : Operator() {
             object Addictive : Binary()

@@ -40,10 +40,10 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
 
     fun parse(): Node.Program {
         val funcDefinitions = mutableListOf<Node.Function>()
-        while (currentPosition < tokens.size) {
-            val funcDefinition = parseFunctionDefinition()
-            funcDefinitions.add(funcDefinition)
-        }
+//        while (currentPosition < tokens.size) {
+//            val funcDefinition = parseFunctionDefinition()
+//            funcDefinitions.add(funcDefinition)
+//        }
         return Node.Program(funcDefinitions)
     }
 
@@ -196,7 +196,6 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
             ::parseReturnStatement,
             ::parseDeclaration,
             ::parseAssignmentStatement,
-            //::parsePrimaryExpression,
             ::parseExpressionStatement
         ) as Node.Statement
     }
@@ -271,7 +270,7 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
                 comma = tryParse { Node.Tokenized(consumeNextTokenOnValue(",")) }
             }
         }
-        consumeNextTokenOnValue(",")
+        consumeNextTokenOnValue(")")
         return arguments
     }
 
@@ -317,6 +316,28 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
             "||" -> 1
             else -> throw IllegalArgumentException("Unknown binary operator: $operator")
         }
+    }
+    private fun parsePrimaryExpression(): Node.Expression {
+        return parseFirstOf("primary expression",
+            ::parseConstant,
+            ::parseFunctionCall,
+            ::parseParentedExpression,
+            ::parsePostfixExpression,
+            ::parseVariable,
+            ::parsePrefixExpression,
+            ::parseReferenceExpression,
+            ::parsePointerExpression,
+            ::parseDeclaration
+        ) as Node.Expression
+    }
+    private fun parseConstant(): Node.Expression.Constant {
+        val token = consumeNextToken<TokenType.Constant>("constant")
+        return Node.Expression.Constant(token)
+    }
+
+    private fun parseVariable(): Node.Expression.Variable {
+        val token = consumeNextToken<TokenType.Identifier>("name of variable")
+        return Node.Expression.Variable(token)
     }
 
     private fun parsePostfixExpression() : Node.Expression.Postfix {
@@ -466,40 +487,53 @@ class SyntaxAnalyzer(private val tokens: List<Token>) {
     }
 
     private fun parseInitializer(): Node.Initializer {
+        return parseFirstOf("initializer",
+            ::parseVariableInitializer,
+            ::parsePointerInitializer
+        ) as Node.Initializer
+    }
+
+    private fun parseVariableInitializer():Node.Initializer.Variable {
         val expression = parseExpression()
-        return Node.Initializer(expression)
+        return Node.Initializer.Variable(expression)
+    }
+    private fun parsePointerInitializer(): Node.Initializer.Pointer {
+        val variable = parseReferenceExpression()
+        return Node.Initializer.Pointer(variable)
+    }
+    private fun parseReferenceExpression() : Node.Expression.Variable {
+        consumeNextTokenOnValue("&")
+        return parseVariable()
     }
 
     private fun parseDeclarator(): Node.Declarator {
+        return parseFirstOf("declarator",
+            ::parseVariableDeclarator,
+            ::parsePointerDeclarator
+        ) as Node.Declarator
+    }
+    private fun parsePointerDeclarator(): Node.Declarator.Pointer {
+        val name = parsePointerExpression()
+        var initializer: Node.Initializer? = null
+        if (checkNextTokenOnValue("=")) {
+            getNextToken()
+            initializer = parseInitializer()
+        }
+        return Node.Declarator.Pointer(name, initializer)
+    }
+    private fun parsePointerExpression(): Node.Expression.Variable {
+        consumeNextTokenOnValue("*")
+        return parseVariable()
+    }
+
+    private fun parseVariableDeclarator() : Node.Declarator.Variable {
         val name = Node.Identifier(consumeNextToken<TokenType.Identifier>("name of variable"))
         var initializer: Node.Initializer? = null
         if (checkNextTokenOnValue("=")) {
             getNextToken()
             initializer = parseInitializer()
         }
-        return Node.Declarator(name, initializer)
-    }
-
-    private fun parsePrimaryExpression(): Node.Expression {
-        return parseFirstOf("primary expression",
-            ::parseConstant,
-            ::parseFunctionCall,
-            ::parseParentedExpression,
-            ::parsePostfixExpression,
-            ::parseVariable,
-            ::parsePrefixExpression,
-            ::parseDeclaration
-        ) as Node.Expression
-    }
-
-    private fun parseConstant(): Node.Expression.Constant {
-        val token = consumeNextToken<TokenType.Constant>("constant")
-        return Node.Expression.Constant(token)
-    }
-
-    private fun parseVariable(): Node.Expression.Variable {
-        val token = consumeNextToken<TokenType.Identifier>("name of variable")
-        return Node.Expression.Variable(token)
+        return Node.Declarator.Variable(name, initializer)
     }
 
     private fun parseExpressionStatement(): Node.Statement {
